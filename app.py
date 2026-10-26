@@ -1,249 +1,258 @@
-from datetime import datetime
 import math
+import uuid
+from datetime import datetime, timezone
+
 import pandas as pd
 import plotly.express as px
+import requests
 import streamlit as st
 
-st.set_page_config(page_title="CommunityAI", page_icon="🌱", layout="wide")
+st.set_page_config(page_title="CommunityConnect", page_icon="🌱", layout="wide")
 st.markdown("""
 <style>
 .block-container{padding-top:1.2rem;max-width:1450px}
 .hero{padding:1.5rem 1.7rem;border:1px solid #dceae7;border-radius:18px;background:linear-gradient(115deg,#eff8f5,#fff)}
-.hero h1{margin:.25rem 0;color:#153c3a;font-size:2.1rem;letter-spacing:-.03em}
-.hero p{color:#526765;font-size:1rem;margin-bottom:0}
-.kicker{color:#147d72;font-size:.75rem;font-weight:750;letter-spacing:.12em;text-transform:uppercase}
+.hero h1{margin:.25rem 0;color:#153c3a;font-size:2.1rem}
+.hero p{color:#526765;margin-bottom:0}
 div[data-testid="stMetric"]{background:#fff;border:1px solid #e2e9ed;padding:13px 15px;border-radius:13px}
 </style>
 """, unsafe_allow_html=True)
 
+DB_DEFAULT = "https://communityconnect-1935f-default-rtdb.asia-southeast1.firebasedatabase.app"
+AUTH_BASE = "https://identitytoolkit.googleapis.com/v1"
 CATS = {
-"Water & sanitation":["water","drinking","tap","leak","sewage","toilet","sanitation","shortage"],
-"Waste management":["garbage","waste","rubbish","trash","dump","cleaning","litter","collection"],
-"Transport & roads":["bus","transport","road","traffic","pothole","sidewalk","commute","crossing"],
-"Safety & lighting":["unsafe","safety","streetlight","street light","dark","accident","crime","lighting"],
-"Health & accessibility":["hospital","clinic","health","ambulance","wheelchair","accessible","doctor"],
-"Education & internet":["school","student","education","internet","wifi","wi-fi","computer","library","learning"],
-"Food & housing":["food","meal","hostel","housing","shelter","rent","nutrition","hungry"],
-"Environment":["tree","pollution","air","smoke","flood","drainage","heat","climate","rain"]}
+    "Water & sanitation":["water","drinking","tap","leak","sewage","toilet","sanitation","shortage"],
+    "Waste management":["garbage","waste","rubbish","trash","dump","cleaning","litter","collection"],
+    "Transport & roads":["bus","transport","road","traffic","pothole","sidewalk","commute","crossing"],
+    "Safety & lighting":["unsafe","safety","streetlight","street light","dark","accident","crime","lighting"],
+    "Health & accessibility":["hospital","clinic","health","ambulance","wheelchair","accessible","doctor"],
+    "Education & internet":["school","student","education","internet","wifi","wi-fi","computer","library","learning"],
+    "Food & housing":["food","meal","hostel","housing","shelter","rent","nutrition","hungry"],
+    "Environment":["tree","pollution","air","smoke","flood","drainage","heat","climate","rain"],
+}
 ACTIONS = {
-"Water & sanitation":["Verify the supply issue with affected residents and the relevant water service.","Group reports by neighbourhood and identify who may need urgent support.","Track inspection and repair dates."],
-"Waste management":["Compare reports with the published collection schedule.","Identify repeat hotspots before planning extra collection or a cleanup.","Track repeat reports and whether the area stays clear."],
-"Transport & roads":["Verify the location and gather safe, relevant evidence.","Review pedestrian access and peak travel times.","Refer a concise issue summary to the relevant transport or public-works team."],
-"Safety & lighting":["Validate the location without publishing sensitive personal details.","Request a lighting inspection.","Track repair status; a report alone does not prove a crime."],
-"Health & accessibility":["Confirm service details with a qualified provider.","Avoid collecting medical or other sensitive details.","Document access barriers and check improvements."],
-"Education & internet":["Identify who is affected and what access is missing.","Explore shared access points, device lending, or connectivity support.","Track reliability and access improvements."],
-"Food & housing":["Verify support needs respectfully without collecting names.","Use verified local service directories before referring people.","Track support gaps and service response."],
-"Environment":["Verify the location, date, and conditions.","Coordinate with the relevant maintenance or environmental service.","Track follow-up observations."],
-"Other":["Clarify what happened, where, and who may be affected.","Identify a relevant service or community group for review.","Agree on a measurable next step."]}
+    "Water & sanitation":["Verify the supply issue with affected residents and the relevant water service.","Group reports by neighbourhood and identify who may need urgent support.","Track inspection and repair dates."],
+    "Waste management":["Compare reports with the published collection schedule.","Identify repeat hotspots before planning extra collection or a cleanup.","Track whether the area stays clear."],
+    "Transport & roads":["Verify the location and gather safe evidence.","Review pedestrian access and peak travel times.","Refer a summary to the relevant public-works team."],
+    "Safety & lighting":["Validate the location without publishing sensitive details.","Request a lighting inspection.","Track repair status; a report alone does not prove a crime."],
+    "Health & accessibility":["Confirm service details with a qualified provider.","Avoid collecting medical details.","Document access barriers and check improvements."],
+    "Education & internet":["Identify who is affected and what access is missing.","Explore shared access points or connectivity support.","Track reliability and access improvements."],
+    "Food & housing":["Verify support needs respectfully without collecting names.","Use verified local service directories.","Track support gaps and service response."],
+    "Environment":["Verify the location, date, and conditions.","Contact the relevant maintenance service.","Track follow-up observations."],
+    "Other":["Clarify what happened, where, and who may be affected.","Identify a relevant service or community group.","Agree on a measurable next step."],
+}
+DEMO = [
+{"Report ID":"DEMO-001","Issue":"Drinking water supply is irregular","Description":"Residents report that water has been unavailable for several days.","Area":"North Ward (illustrative)","Category":"Water & sanitation","People affected (estimate)":320,"Severity (1–5)":5,"Urgency (1–5)":5,"Priority score":96.0,"Priority":"Critical","Status":"Needs review","Latitude":16.5062,"Longitude":80.6480,"Reported at":"2026-10-26","Data source":"DEMO DATA — illustrative"},
+{"Report ID":"DEMO-002","Issue":"Garbage collection was missed","Description":"Waste is accumulating near a local market.","Area":"Market Road (illustrative)","Category":"Waste management","People affected (estimate)":180,"Severity (1–5)":3,"Urgency (1–5)":3,"Priority score":55.0,"Priority":"Medium","Status":"Under review","Latitude":16.5150,"Longitude":80.6300,"Reported at":"2026-10-26","Data source":"DEMO DATA — illustrative"},
+{"Report ID":"DEMO-003","Issue":"Street light near bus stop is broken","Description":"The road is dark after sunset and the walk feels unsafe.","Area":"College Junction (illustrative)","Category":"Safety & lighting","People affected (estimate)":95,"Severity (1–5)":4,"Urgency (1–5)":4,"Priority score":73.0,"Priority":"High","Status":"Needs review","Latitude":16.5200,"Longitude":80.6150,"Reported at":"2026-10-26","Data source":"DEMO DATA — illustrative"},
+]
+COLS = ["Report ID","Issue","Description","Area","Category","People affected (estimate)","Severity (1–5)","Urgency (1–5)","Priority score","Priority","Status","Evidence URL","Latitude","Longitude","Reported at","Data source","Submitted by"]
+
+def get_config():
+    try:
+        return st.secrets["firebase"]["api_key"], st.secrets["firebase"].get("database_url", DB_DEFAULT).rstrip("/")
+    except Exception:
+        return None, DB_DEFAULT
+
+def auth_call(endpoint, payload, api_key):
+    r = requests.post(f"{AUTH_BASE}/{endpoint}?key={api_key}", json=payload, timeout=20)
+    data = r.json()
+    if not r.ok:
+        msg = data.get("error", {}).get("message", "Authentication failed")
+        friendly = {
+            "EMAIL_EXISTS":"This email is already registered. Sign in instead.",
+            "INVALID_LOGIN_CREDENTIALS":"Email or password is incorrect.",
+            "EMAIL_NOT_FOUND":"Email or password is incorrect.",
+            "INVALID_PASSWORD":"Email or password is incorrect.",
+            "OPERATION_NOT_ALLOWED":"Enable Email/Password in Firebase Authentication.",
+            "API_KEY_INVALID":"Firebase Web API key is incorrect. Check Streamlit Secrets.",
+        }
+        raise ValueError(friendly.get(msg, msg.replace("_"," ").title()))
+    return data
+
+def db(path, token, db_url, method="GET", payload=None):
+    r = requests.request(method, f"{db_url}/{path.strip('/')}.json",
+                         params={"auth":token}, json=payload, timeout=20)
+    try: data = r.json()
+    except Exception: data = None
+    if not r.ok:
+        if r.status_code in (401,403):
+            raise ValueError("Firebase denied access. Check the Realtime Database rules.")
+        raise ValueError(f"Database error ({r.status_code}). Check Firebase configuration.")
+    return data
 
 def classify(text):
-    text=str(text).lower()
-    scores={cat:sum(term in text for term in terms) for cat,terms in CATS.items()}
-    best=max(scores,key=scores.get)
+    s = str(text).lower()
+    scores = {cat:sum(term in s for term in terms) for cat,terms in CATS.items()}
+    best = max(scores,key=scores.get)
     return best if scores[best] else "Other"
 
-def score(severity, urgency, people):
+def priority(severity, urgency, people):
     sev=(severity-1)/4*100
     urg=(urgency-1)/4*100
-    reach=min(100, math.log10(max(int(people),1)+1)/math.log10(10001)*100)
-    return round(.40*sev+.35*urg+.25*reach,1)
+    reach=min(100,math.log10(max(int(people),1)+1)/math.log10(10001)*100)
+    n=round(.40*sev+.35*urg+.25*reach,1)
+    return n, ("Critical" if n>=85 else "High" if n>=70 else "Medium" if n>=45 else "Low")
 
-def label(n):
-    return "Critical" if n>=85 else "High" if n>=70 else "Medium" if n>=45 else "Low"
+def get_reports(token, db_url):
+    data=db("reports",token,db_url)
+    rows=[]
+    if isinstance(data,dict):
+        for rid,row in data.items():
+            if isinstance(row,dict):
+                row.setdefault("Report ID",rid)
+                rows.append(row)
+    return pd.DataFrame(rows)
 
-def new_report(title, desc, area, people, severity, urgency, lat, lon, evidence):
-    n=score(severity,urgency,people)
-    return {"Report ID":f"CAI-{datetime.now().strftime('%y%m%d%H%M%S%f')[-9:]}",
-    "Issue":title.strip(),"Description":desc.strip(),"Area":area.strip(),
-    "Category":classify(title+" "+desc),"People affected (estimate)":int(people),
-    "Severity (1–5)":int(severity),"Urgency (1–5)":int(urgency),
-    "Priority score":n,"Priority":label(n),"Status":"Needs review",
-    "Evidence URL":evidence,"Latitude":lat,"Longitude":lon,
-    "Reported at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-    "Data source":"Community submission"}
-
-DEMO = [
-["DEMO-001","Drinking water supply is irregular","Residents say water has been unavailable for several days in parts of the neighbourhood.","North Ward (illustrative)","Water & sanitation",320,5,5,96.0,"Critical","Needs review",16.5062,80.6480],
-["DEMO-002","Garbage collection was missed","Waste is accumulating near a local market and residents report a persistent smell.","Market Road (illustrative)","Waste management",180,3,3,55.0,"Medium","Under review",16.5150,80.6300],
-["DEMO-003","Street light near bus stop is broken","The road is dark after sunset and students say the walk feels unsafe.","College Junction (illustrative)","Safety & lighting",95,4,4,73.0,"High","Needs review",16.5200,80.6150],
-["DEMO-004","Not enough buses in the evening","People report long waits for buses after 7 PM, affecting college and work travel.","East Bus Route (illustrative)","Transport & roads",240,3,3,58.0,"Medium","In progress",16.5000,80.6600],
-["DEMO-005","Wi-Fi is unreliable in the study area","Students report difficulty accessing online learning resources in the library.","Campus Library (illustrative)","Education & internet",75,2,2,33.0,"Low","Needs review",16.4940,80.5000],
-["DEMO-006","Drain is blocked after heavy rain","Residents report standing water after rainfall and want the drain checked.","South Lane (illustrative)","Environment",130,4,4,74.0,"High","Needs review",16.5100,80.6400],
-["DEMO-007","Ramp access is missing at a public entrance","Wheelchair users may need help accessing the entrance; details require a site check.","Community Centre (illustrative)","Health & accessibility",25,4,3,61.0,"Medium","Needs review",16.5020,80.6350],
-["DEMO-008","Pedestrian crossing needs inspection","Residents report difficulty crossing a busy road near a school.","School Road (illustrative)","Transport & roads",210,5,4,83.0,"High","Needs review",16.5170,80.6250],
-["DEMO-009","Limited access to learning resources","Learners say they need more access to computers and study materials.","Learning Centre (illustrative)","Education & internet",60,2,3,39.0,"Low","Needs review",None,None],
-["DEMO-010","Community clinic waiting times are long","Visitors report long waits and request a review of appointment flow.","Local Clinic (illustrative)","Health & accessibility",140,3,4,65.0,"Medium","Under review",None,None],
-["DEMO-011","Public seating is limited near the bus stop","Older residents and people with mobility needs request seating while waiting.","Central Stop (illustrative)","Health & accessibility",80,2,2,30.0,"Low","Needs review",None,None],
-["DEMO-012","Food support information is hard to find","Community members want a clear list of verified food support services.","Community-wide (illustrative)","Food & housing",55,3,3,52.0,"Medium","Needs review",None,None]]
-COLS=["Report ID","Issue","Description","Area","Category","People affected (estimate)","Severity (1–5)","Urgency (1–5)","Priority score","Priority","Status","Latitude","Longitude"]
-if "reports" not in st.session_state:
-    df=pd.DataFrame(DEMO,columns=COLS)
-    df["Evidence URL"]=""
-    df["Reported at"]="2026-10-26"
-    df["Data source"]="DEMO DATA — illustrative"
-    st.session_state.reports=df
-if "nav" not in st.session_state: st.session_state.nav="Overview"
-
+api_key, db_url = get_config()
 with st.sidebar:
-    st.markdown("## 🌱 CommunityAI")
+    st.markdown("## 🌱 CommunityConnect")
     st.caption("Community needs → clear next steps")
-    page=st.radio("Navigate",["Overview","Explore reports","Report a need","Opportunity finder","Map & locations","About this project"],key="nav",label_visibility="collapsed")
-    st.divider()
-    show_demo=st.toggle("Include sample reports",value=True)
-    st.caption("Sample reports are fictional. Reports are held in the current app session; export them before closing.")
+    if st.session_state.get("id_token"):
+        st.success(st.session_state.get("email","Signed in"))
+        if st.button("Sign out"):
+            for k in ["id_token","refresh_token","email","uid"]:
+                st.session_state.pop(k,None)
+            st.rerun()
 
-all_reports=st.session_state.reports.copy()
-reports=all_reports if show_demo else all_reports[all_reports["Data source"]!="DEMO DATA — illustrative"].copy()
-st.markdown('<div class="hero"><div class="kicker">Community insight workspace</div><h1>Make community needs easier to understand.</h1><p>Collect local concerns, see which issues may need attention first, and explore practical next steps — with transparent scoring and human review.</p></div>',unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>CommunityConnect</h1><p>Collect local concerns, understand urgency, and explore practical next steps.</p></div>',unsafe_allow_html=True)
 st.write("")
+if not api_key:
+    st.error("Add your Firebase Web API key to Streamlit Secrets first.")
+    st.code(f'[firebase]\\napi_key = "PASTE_FIREBASE_WEB_API_KEY_HERE"\\ndatabase_url = "{DB_DEFAULT}"',language="toml")
+    st.write("Find the Web API key in Firebase Console → Project settings → General → Your apps. Add a Web app if you do not have one. Do not put your service-account private key here.")
+    st.stop()
 
+if not st.session_state.get("id_token"):
+    st.subheader("Sign in to CommunityConnect")
+    tab1,tab2=st.tabs(["Sign in","Create account"])
+    with tab1:
+        with st.form("login"):
+            email=st.text_input("Email")
+            password=st.text_input("Password",type="password")
+            submit=st.form_submit_button("Sign in",type="primary",use_container_width=True)
+        if submit:
+            try:
+                d=auth_call("accounts:signInWithPassword",{"email":email.strip(),"password":password,"returnSecureToken":True},api_key)
+                st.session_state.id_token=d["idToken"]; st.session_state.refresh_token=d.get("refreshToken",""); st.session_state.email=d.get("email",email); st.session_state.uid=d.get("localId","")
+                st.rerun()
+            except Exception as e: st.error(str(e))
+    with tab2:
+        with st.form("register"):
+            new_email=st.text_input("Email address")
+            p1=st.text_input("Password (minimum 6 characters)",type="password")
+            p2=st.text_input("Confirm password",type="password")
+            submit=st.form_submit_button("Create account",type="primary",use_container_width=True)
+        if submit:
+            if p1!=p2: st.error("Passwords do not match.")
+            elif len(p1)<6: st.error("Password must contain at least 6 characters.")
+            else:
+                try:
+                    d=auth_call("accounts:signUp",{"email":new_email.strip(),"password":p1,"returnSecureToken":True},api_key)
+                    st.session_state.id_token=d["idToken"]; st.session_state.refresh_token=d.get("refreshToken",""); st.session_state.email=d.get("email",new_email); st.session_state.uid=d.get("localId","")
+                    st.rerun()
+                except Exception as e: st.error(str(e))
+    st.info("This version implements email/password login. Google sign-in is not implemented in this Python login screen.")
+    st.stop()
+
+token=st.session_state.id_token
+try:
+    real=get_reports(token,db_url)
+    if real.empty: reports=pd.DataFrame(DEMO)
+    else:
+        for c in COLS:
+            if c not in real.columns: real[c]=None
+        reports=pd.concat([pd.DataFrame(DEMO),real[COLS]],ignore_index=True)
+except Exception as e:
+    st.error(str(e))
+    st.info("Database access is still locked or the database rules have not been configured. Follow the rules setup before testing submissions.")
+    st.stop()
+
+page=st.radio("Navigate",["Overview","Explore reports","Report a need","Opportunity finder","Map & locations","About"],horizontal=True,label_visibility="collapsed")
 if page=="Overview":
-    st.subheader("Overview")
-    st.caption("A quick picture of the reports in your workspace.")
-    if len(reports):
-        a,b,c,d=st.columns(4)
-        a.metric("Reports received",len(reports))
-        b.metric("Critical / high",int(reports["Priority"].isin(["Critical","High"]).sum()))
-        c.metric("Estimated people affected",f"{int(reports['People affected (estimate)'].sum()):,}")
-        d.metric("Still open",int((reports["Status"]!="Resolved").sum()))
-        left,right=st.columns([1.1,1])
-        with left:
-            st.markdown("#### Issues needing attention")
-            queue=reports[reports["Status"]!="Resolved"].sort_values("Priority score",ascending=False).head(7)
-            st.dataframe(queue[["Issue","Area","Priority","Priority score","Status"]],width="stretch",hide_index=True)
-        with right:
-            st.markdown("#### What people are reporting")
-            counts=reports["Category"].value_counts().rename_axis("Category").reset_index(name="Reports")
-            fig=px.bar(counts,x="Reports",y="Category",orientation="h",color="Reports",color_continuous_scale=["#C8E6E0","#147D72"])
-            fig.update_layout(height=340,margin=dict(l=0,r=5,t=5,b=0),coloraxis_showscale=False,yaxis={"categoryorder":"total ascending"},plot_bgcolor="white",paper_bgcolor="white")
-            st.plotly_chart(fig,width="stretch")
-        x,y,z=st.columns(3)
-        x.info("**1 · Collect**\n\nBring community reports into one place.")
-        y.info("**2 · Prioritize**\n\nCompare urgency, severity, and estimated reach.")
-        z.info("**3 · Act**\n\nUse suggestions as a starting point for local review.")
-    else: st.info("No reports are visible. Turn on sample reports or submit a new community need.")
-
+    a,b,c,d=st.columns(4)
+    a.metric("Reports shown",len(reports))
+    b.metric("Critical / high",int(reports["Priority"].isin(["Critical","High"]).sum()))
+    c.metric("Estimated people affected",f"{int(pd.to_numeric(reports['People affected (estimate)'],errors='coerce').fillna(0).sum()):,}")
+    d.metric("Community submissions",int((reports["Data source"]=="Community submission").sum()))
+    left,right=st.columns([1.1,1])
+    with left:
+        st.markdown("#### Issues needing attention")
+        st.dataframe(reports.sort_values("Priority score",ascending=False)[["Issue","Area","Priority","Priority score","Status"]].head(7),use_container_width=True,hide_index=True)
+    with right:
+        st.markdown("#### Report categories")
+        counts=reports["Category"].value_counts().rename_axis("Category").reset_index(name="Reports")
+        fig=px.bar(counts,x="Reports",y="Category",orientation="h",color="Reports",color_continuous_scale=["#C8E6E0","#147D72"])
+        fig.update_layout(height=340,margin=dict(l=0,r=5,t=5,b=0),coloraxis_showscale=False)
+        st.plotly_chart(fig,use_container_width=True)
 elif page=="Explore reports":
-    st.subheader("Explore community reports")
-    st.caption("A report is not automatically verified just because it appears here.")
-    if len(reports):
-        c1,c2,c3=st.columns([1,1,1.3])
-        cats=["All categories"]+sorted(reports["Category"].dropna().unique().tolist())
-        cat=c1.selectbox("Category",cats)
-        pri=c2.selectbox("Priority",["All priorities","Critical","High","Medium","Low"])
-        query=c3.text_input("Search",placeholder="Issue, area, or description")
-        view=reports.copy()
-        if cat!="All categories": view=view[view["Category"]==cat]
-        if pri!="All priorities": view=view[view["Priority"]==pri]
-        if query.strip():
-            mask=view[["Issue","Area","Description"]].fillna("").astype(str).apply(lambda col:col.str.contains(query,case=False,regex=False)).any(axis=1)
-            view=view[mask]
-        st.caption(f"{len(view)} report(s) match.")
-        st.dataframe(view[["Report ID","Issue","Area","Category","People affected (estimate)","Priority score","Priority","Status","Data source"]].sort_values("Priority score",ascending=False),width="stretch",hide_index=True)
-        with st.expander("Update a report status"):
-            rid=st.selectbox("Choose report ID",view["Report ID"].tolist())
-            current=view.loc[view["Report ID"]==rid,"Status"].iloc[0]
-            status=st.selectbox("Status",["Needs review","Under review","In progress","Resolved","Rejected"],index=["Needs review","Under review","In progress","Resolved","Rejected"].index(current))
-            if st.button("Save status",type="primary"):
-                st.session_state.reports.loc[st.session_state.reports["Report ID"]==rid,"Status"]=status
-                st.success("Status updated."); st.rerun()
-        st.download_button("Download filtered reports (CSV)",view.to_csv(index=False).encode("utf-8"),"communityai_reports.csv","text/csv")
-    else: st.info("No reports yet. Add the first one under Report a need.")
-
+    st.subheader("Explore reports")
+    cat=st.selectbox("Category",["All"]+sorted(reports["Category"].dropna().unique().tolist()))
+    pr=st.selectbox("Priority",["All","Critical","High","Medium","Low"])
+    q=st.text_input("Search issue or area")
+    view=reports.copy()
+    if cat!="All": view=view[view["Category"]==cat]
+    if pr!="All": view=view[view["Priority"]==pr]
+    if q: view=view[view[["Issue","Area","Description"]].fillna("").astype(str).apply(lambda x:x.str.contains(q,case=False,regex=False)).any(axis=1)]
+    st.dataframe(view[[c for c in COLS if c in view.columns]].sort_values("Priority score",ascending=False),use_container_width=True,hide_index=True)
+    st.download_button("Download CSV",view.to_csv(index=False).encode(), "communityconnect_reports.csv","text/csv")
 elif page=="Report a need":
     st.subheader("Report a community need")
-    st.write("Describe the problem in plain language. You do not need to know its category.")
-    st.warning("Do not enter names, phone numbers, medical details, or other private information.")
+    st.warning("Do not include names, phone numbers, medical details, or other private information.")
     with st.form("report_form",clear_on_submit=True):
-        title=st.text_input("What is the problem? *",placeholder="Example: Drinking water is unavailable on our street")
-        desc=st.text_area("Describe what is happening *",placeholder="When does it happen? Who may be affected? What have you observed?",height=120)
-        area=st.text_input("Where is it happening? *",placeholder="Neighbourhood, campus block, village, or public landmark")
-        c1,c2,c3=st.columns(3)
-        people=c1.number_input("Estimated people affected",min_value=1,max_value=1000000,value=50,step=10)
-        severity=c2.slider("Severity",1,5,3,help="1 = minor impact, 5 = very serious impact")
-        urgency=c3.slider("Urgency",1,5,3,help="1 = can wait, 5 = needs quick attention")
+        title=st.text_input("What is the problem? *")
+        desc=st.text_area("Describe what is happening *")
+        area=st.text_input("Where is it happening? *")
+        a,b,c=st.columns(3)
+        people=a.number_input("Estimated people affected",1,1000000,50,10)
+        sev=b.slider("Severity",1,5,3)
+        urg=c.slider("Urgency",1,5,3)
         with st.expander("Optional location and evidence"):
-            x,y=st.columns(2)
-            lat_s=x.text_input("Latitude",placeholder="Leave blank if unknown")
-            lon_s=y.text_input("Longitude",placeholder="Leave blank if unknown")
-            evidence=st.text_input("Evidence link",placeholder="Public source or photo URL (optional)")
-        submitted=st.form_submit_button("Analyze and add report",type="primary",width="stretch")
-        if submitted:
-            if not title.strip() or not desc.strip() or not area.strip():
-                st.error("Please fill in the problem, description, and location.")
-            else:
+            lat_s=st.text_input("Latitude")
+            lon_s=st.text_input("Longitude")
+            evidence=st.text_input("Evidence URL")
+        submit=st.form_submit_button("Submit report",type="primary",use_container_width=True)
+    if submit:
+        if not title.strip() or not desc.strip() or not area.strip(): st.error("Fill in the problem, description, and location.")
+        else:
+            try:
                 lat=lon=None
-                try:
-                    if lat_s.strip() or lon_s.strip():
-                        lat=float(lat_s); lon=float(lon_s)
-                        if not (-90<=lat<=90 and -180<=lon<=180): raise ValueError
-                except ValueError:
-                    st.error("Coordinates must be valid numbers. Latitude is -90 to 90; longitude is -180 to 180."); st.stop()
-                row=new_report(title,desc,area,people,severity,urgency,lat,lon,evidence.strip())
-                st.session_state.reports=pd.concat([st.session_state.reports,pd.DataFrame([row])],ignore_index=True)
-                st.success(f"Report added · {row['Category']} · {row['Priority']} priority · score {row['Priority score']}/100")
-                st.info("Category suggestion uses keyword rules. A person should verify the report and score before acting.")
+                if lat_s.strip() or lon_s.strip():
+                    if not lat_s.strip() or not lon_s.strip(): raise ValueError("Enter both latitude and longitude, or leave both blank.")
+                    lat=float(lat_s); lon=float(lon_s)
+                    if not (-90<=lat<=90 and -180<=lon<=180): raise ValueError("Coordinates are out of range.")
+                n,label=priority(sev,urg,people)
+                rid="CC-"+uuid.uuid4().hex[:10].upper()
+                row={"Report ID":rid,"Issue":title.strip(),"Description":desc.strip(),"Area":area.strip(),"Category":classify(title+" "+desc),"People affected (estimate)":int(people),"Severity (1–5)":int(sev),"Urgency (1–5)":int(urg),"Priority score":n,"Priority":label,"Status":"Needs review","Evidence URL":evidence.strip(),"Latitude":lat,"Longitude":lon,"Reported at":datetime.now(timezone.utc).isoformat(timespec="seconds"),"Data source":"Community submission","Submitted by":st.session_state.email,"Submitted by UID":st.session_state.uid}
+                db("reports/"+rid,token,db_url,"PUT",row)
+                st.success(f"Report saved to Firebase and shared! {label} priority · score {n}/100")
                 st.rerun()
-
+            except Exception as e: st.error(f"Could not save report: {e}")
 elif page=="Opportunity finder":
-    st.subheader("Opportunity finder")
-    st.caption("Possible next steps to verify locally — not confirmed commitments from organizations.")
-    if len(reports):
-        options=reports.sort_values("Priority score",ascending=False)
-        rid=st.selectbox("Choose an issue",options["Report ID"].tolist(),format_func=lambda x:f"{options.loc[options['Report ID']==x,'Priority'].iloc[0]} · {options.loc[options['Report ID']==x,'Issue'].iloc[0]}")
-        row=options[options["Report ID"]==rid].iloc[0]
-        a,b=st.columns([2,1])
-        a.markdown(f"### {row['Issue']}"); a.write(row["Description"]); a.caption(f"{row['Area']} · {row['Category']} · {row['Report ID']}")
-        b.metric("Priority score",f"{row['Priority score']}/100",row["Priority"]); b.caption("Status: "+row["Status"])
-        st.markdown("#### Suggested next steps")
-        for i,action in enumerate(ACTIONS.get(row["Category"],ACTIONS["Other"]),1):
-            st.markdown(f"**{i}.** {action}")
-        st.markdown("#### Before taking action")
-        st.markdown("- Confirm the concern with affected people or a responsible service.\n- Look for reliable evidence or direct observation.\n- Consider people who may be missing from the reports.\n- Record an owner, next step, and measure of improvement.")
-        st.info("Suggestions are category-based checklists, not generated by a live LLM.")
-    else: st.info("Add a report to receive suggestions.")
-
+    opts=reports.sort_values("Priority score",ascending=False)
+    rid=st.selectbox("Choose an issue",opts["Report ID"].tolist(),format_func=lambda x:f"{opts.loc[opts['Report ID']==x,'Priority'].iloc[0]} · {opts.loc[opts['Report ID']==x,'Issue'].iloc[0]}")
+    row=opts[opts["Report ID"]==rid].iloc[0]
+    st.markdown(f"### {row['Issue']}")
+    st.write(row["Description"])
+    st.caption(f"{row['Area']} · {row['Category']}")
+    st.metric("Priority score",f"{row['Priority score']}/100",row["Priority"])
+    for i,action in enumerate(ACTIONS.get(row["Category"],ACTIONS["Other"]),1): st.markdown(f"**{i}.** {action}")
 elif page=="Map & locations":
-    st.subheader("Map & locations")
-    st.caption("Only reports with coordinates appear. Demo coordinates are illustrative, not verified locations.")
-    points=reports.dropna(subset=["Latitude","Longitude"]).copy() if len(reports) else pd.DataFrame()
-    if len(points):
-        st.map(points.rename(columns={"Latitude":"latitude","Longitude":"longitude"}),latitude="latitude",longitude="longitude")
-        st.dataframe(points[["Issue","Area","Priority","Latitude","Longitude","Data source"]],width="stretch",hide_index=True)
-    else: st.info("No reports have coordinates yet. Reports without coordinates remain visible in the report list.")
-
+    pts=reports.dropna(subset=["Latitude","Longitude"]).copy()
+    if not pts.empty:
+        pts["latitude"]=pd.to_numeric(pts["Latitude"],errors="coerce"); pts["longitude"]=pd.to_numeric(pts["Longitude"],errors="coerce")
+        pts=pts.dropna(subset=["latitude","longitude"])
+        if not pts.empty: st.map(pts,latitude="latitude",longitude="longitude"); st.dataframe(pts[["Issue","Area","Priority","latitude","longitude"]],use_container_width=True,hide_index=True)
+        else: st.info("No valid coordinates.")
+    else: st.info("No reports have coordinates yet.")
 else:
-    st.subheader("About CommunityAI")
     st.markdown("""
-### Why it exists
-Communities often share concerns through many channels. CommunityAI organizes reports so recurring needs and possible next steps are easier to see.
-
 ### How it works
-1. **Collect:** Someone submits a short report.
-2. **Categorize:** Keyword rules suggest a topic.
-3. **Prioritize:** A score combines severity (40%), urgency (35%), and estimated reach (25%).
-4. **Recommend:** A category checklist suggests next steps.
-5. **Review:** People validate reports and evidence before decisions are made.
-
-### Reading the score
-- Severity and urgency are rated from 1 to 5.
-- Estimated reach is normalized so very large numbers do not dominate.
-- The score helps organize reports; it is not a validated policy standard or an automatic decision.
-
-### Current limitations
-- No live generative AI model is connected yet; categorization is keyword-based.
-- Recommendations are checklists, not verified referrals.
-- Reports live in the current Streamlit session, not a permanent database.
-- Demo reports are fictional; demo coordinates are illustrative.
-- People affected may overlap between reports.
-
-### Responsible use
-Do not enter sensitive personal information. Validate concerns with affected people and reliable sources. Consider underreported groups and never allocate resources using the score alone.
+- Users sign in with email/password.
+- Reports are saved in Firebase Realtime Database.
+- Categories use keyword rules; priority combines severity (40%), urgency (35%), and estimated reach (25%).
+- Demo reports are fictional and shown for illustration.
+- Validate reports before taking action; scores are not automatic decisions.
 """)
-    st.download_button("Export visible reports (CSV)",reports.to_csv(index=False).encode("utf-8"),"communityai_reports.csv","text/csv")
-    if st.button("Reset to demo data"):
-        df=pd.DataFrame(DEMO,columns=COLS); df["Evidence URL"]=""; df["Reported at"]="2026-10-26"; df["Data source"]="DEMO DATA — illustrative"
-        st.session_state.reports=df; st.success("Demo data restored."); st.rerun()
-
 st.divider()
-st.caption("CommunityAI · Hackathon prototype · Human review required · Demo records are illustrative")
+st.caption("CommunityConnect · Hackathon prototype · Human review required")
